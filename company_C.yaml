@@ -1,0 +1,61 @@
+# Company C: US oil & gas operator (3 buyer entities). One AP-invoice-line file, USD, 4-level category tree, no labels.
+# Written for the blind test from the auto-config draft, then corrected by profiling the data (config only, no code change).
+# Corrections to the draft: amount is the per-line value (invoice_total_usd repeats the invoice total on every line);
+# rate_usd is a unit price, not an FX rate; dates are month-first (MM/DD/YYYY); product_service_code is mostly blank or
+# generic ("PRODUCT", "Labor"), so it is not used as an item code; invoice_description carries the real meaning of the
+# many "Total invoice amount representing unitemized charges" lines, so it goes into the classification context.
+company: C
+reporting_currency: USD
+data_dir: data/company_C          # override with --data-dir; data is never committed
+default_vat: 0.0                  # amounts are USD and carry tax as separate lines, not inside the amount
+day_first: false
+
+sources:
+  - name: invoice_lines
+    file: invoice_lines.csv
+    record_id: {column: line_id, prefix: ""}
+    amount_basis: net
+    amount_in_reporting_currency: true
+    columns:
+      amount: line_amount_usd
+      date: invoice_date
+      supplier_name: supplier_name
+      description: [line_description, product_service_description]
+      quantity: quantity
+      uom: uom
+      invoice_number: invoice_number
+      status_raw: status
+      account_text: [gl_account_description]
+      context: [gl_account_description, invoice_description]
+
+combine:
+  mode: single
+
+status:
+  include: [approved, paid]
+  cancelled: [cancelled, canceled, void, voided, reversed]
+
+# Generic lexicons (tax, royalty, revenue, intercompany, ...) are built in. These add account-level rules for what the
+# data shows in the GL account text: partner (joint-interest) billing deposits, revenue accounts written "Rev.",
+# debt-financing cost, receivable (balance-sheet) accounts and employee payroll deductions.
+exclusions:
+  nonprocurement:
+    rules:
+      - {name: partner_billing_jib, fields: [account_text], pattern: '\bJIB\b'}
+      - {name: revenue_abbrev, fields: [account_text], pattern: '\bRev\b'}
+      - {name: financing_debt_cost, fields: [account_text], pattern: '\bdebt\s+issuance\b'}
+      - {name: receivable_account, fields: [account_text], pattern: '\breceivables?\b'}
+      - {name: payroll_deductions, fields: [account_text], pattern: '\bemployee\s+deductions\b'}
+
+taxonomy:
+  file: category_tree_C.csv
+  levels: [level_1, level_2, level_3, level_4]
+
+supplier:
+  fuzzy_threshold: 92
+item:
+  merge_codes_by_text: true
+  min_tokens_for_text_merge: 3
+
+classification:
+  domain_hint: "US upstream oil and gas operator: lease operating expense, workovers, compression, water hauling and disposal, chemicals, plugging, G&A and professional services."
